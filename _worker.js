@@ -102,6 +102,13 @@ async function ensureResultsTable(db) {
       username_0800 TEXT NOT NULL DEFAULT '',
       username_nuvidio TEXT NOT NULL DEFAULT '',
       result_date TEXT NOT NULL,
+      funnel_0800_approved REAL NOT NULL DEFAULT 0,
+      funnel_0800_cancelled REAL NOT NULL DEFAULT 0,
+      funnel_0800_pending REAL NOT NULL DEFAULT 0,
+      funnel_0800_no_action REAL NOT NULL DEFAULT 0,
+      funnel_nuvidio_approved REAL NOT NULL DEFAULT 0,
+      funnel_nuvidio_reproved REAL NOT NULL DEFAULT 0,
+      funnel_nuvidio_no_action REAL NOT NULL DEFAULT 0,
       production_0800 REAL NOT NULL DEFAULT 0,
       production_nuvidio REAL NOT NULL DEFAULT 0,
       production_total REAL NOT NULL DEFAULT 0,
@@ -120,6 +127,13 @@ async function ensureResultsTable(db) {
   const migrations = [
     "ALTER TABLE operator_results_daily ADD COLUMN username_0800 TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE operator_results_daily ADD COLUMN username_nuvidio TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE operator_results_daily ADD COLUMN funnel_0800_approved REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE operator_results_daily ADD COLUMN funnel_0800_cancelled REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE operator_results_daily ADD COLUMN funnel_0800_pending REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE operator_results_daily ADD COLUMN funnel_0800_no_action REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE operator_results_daily ADD COLUMN funnel_nuvidio_approved REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE operator_results_daily ADD COLUMN funnel_nuvidio_reproved REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE operator_results_daily ADD COLUMN funnel_nuvidio_no_action REAL NOT NULL DEFAULT 0",
     "ALTER TABLE operator_results_daily ADD COLUMN production_0800 REAL NOT NULL DEFAULT 0",
     "ALTER TABLE operator_results_daily ADD COLUMN production_nuvidio REAL NOT NULL DEFAULT 0",
     "ALTER TABLE operator_results_daily ADD COLUMN effectiveness_0800 REAL NOT NULL DEFAULT 0",
@@ -231,6 +245,13 @@ async function markSsoTokenAsConsumed(db, jti, expSeconds) {
 function buildRecord(userId, rows) {
   const entries = (rows || []).map((row) => ({
     date: row.result_date,
+    funnel0800Approved: Number(row.funnel_0800_approved || 0),
+    funnel0800Cancelled: Number(row.funnel_0800_cancelled || 0),
+    funnel0800Pending: Number(row.funnel_0800_pending || 0),
+    funnel0800NoAction: Number(row.funnel_0800_no_action || 0),
+    funnelNuvidioApproved: Number(row.funnel_nuvidio_approved || 0),
+    funnelNuvidioReproved: Number(row.funnel_nuvidio_reproved || 0),
+    funnelNuvidioNoAction: Number(row.funnel_nuvidio_no_action || 0),
     production0800: Number(row.production_0800 || 0),
     productionNuvidio: Number(row.production_nuvidio || 0),
     productionTotal: Number(row.production_total || 0),
@@ -330,6 +351,13 @@ async function upsertOperatorResult(db, payload) {
   const username0800 = String(payload?.username0800 || "").trim();
   const usernameNuvidio = String(payload?.usernameNuvidio || "").trim();
   const date = normalizeDateKey(payload?.date);
+  const funnel0800Approved = Number(payload?.funnel0800Approved);
+  const funnel0800Cancelled = Number(payload?.funnel0800Cancelled);
+  const funnel0800Pending = Number(payload?.funnel0800Pending);
+  const funnel0800NoAction = Number(payload?.funnel0800NoAction);
+  const funnelNuvidioApproved = Number(payload?.funnelNuvidioApproved);
+  const funnelNuvidioReproved = Number(payload?.funnelNuvidioReproved);
+  const funnelNuvidioNoAction = Number(payload?.funnelNuvidioNoAction);
   const production0800 = Number(payload?.production0800);
   const productionNuvidio = Number(payload?.productionNuvidio);
   const productionTotal = Number(payload?.productionTotal);
@@ -343,6 +371,13 @@ async function upsertOperatorResult(db, payload) {
   if (
     !userId ||
     !date ||
+    !Number.isFinite(funnel0800Approved) ||
+    !Number.isFinite(funnel0800Cancelled) ||
+    !Number.isFinite(funnel0800Pending) ||
+    !Number.isFinite(funnel0800NoAction) ||
+    !Number.isFinite(funnelNuvidioApproved) ||
+    !Number.isFinite(funnelNuvidioReproved) ||
+    !Number.isFinite(funnelNuvidioNoAction) ||
     !Number.isFinite(production0800) ||
     !Number.isFinite(productionNuvidio) ||
     !Number.isFinite(productionTotal) ||
@@ -358,15 +393,24 @@ async function upsertOperatorResult(db, payload) {
   await db.prepare(
     `INSERT INTO operator_results_daily (
       id, user_id, user_name, username, username_0800, username_nuvidio, result_date,
+      funnel_0800_approved, funnel_0800_cancelled, funnel_0800_pending, funnel_0800_no_action,
+      funnel_nuvidio_approved, funnel_nuvidio_reproved, funnel_nuvidio_no_action,
       production_0800, production_nuvidio, production_total,
       effectiveness_0800, effectiveness_nuvidio, effectiveness, quality_score,
       updated_by_id, updated_by_name, updated_at, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(user_id, result_date) DO UPDATE SET
       user_name = excluded.user_name,
       username = excluded.username,
       username_0800 = excluded.username_0800,
       username_nuvidio = excluded.username_nuvidio,
+      funnel_0800_approved = excluded.funnel_0800_approved,
+      funnel_0800_cancelled = excluded.funnel_0800_cancelled,
+      funnel_0800_pending = excluded.funnel_0800_pending,
+      funnel_0800_no_action = excluded.funnel_0800_no_action,
+      funnel_nuvidio_approved = excluded.funnel_nuvidio_approved,
+      funnel_nuvidio_reproved = excluded.funnel_nuvidio_reproved,
+      funnel_nuvidio_no_action = excluded.funnel_nuvidio_no_action,
       production_0800 = excluded.production_0800,
       production_nuvidio = excluded.production_nuvidio,
       production_total = excluded.production_total,
@@ -386,6 +430,13 @@ async function upsertOperatorResult(db, payload) {
       username0800,
       usernameNuvidio,
       date,
+      funnel0800Approved,
+      funnel0800Cancelled,
+      funnel0800Pending,
+      funnel0800NoAction,
+      funnelNuvidioApproved,
+      funnelNuvidioReproved,
+      funnelNuvidioNoAction,
       production0800,
       productionNuvidio,
       productionTotal,

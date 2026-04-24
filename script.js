@@ -108,6 +108,13 @@ const elements = {
   adminProductionNuvidio: document.querySelector("#admin-production-nuvidio"),
   adminEffectiveness0800: document.querySelector("#admin-effectiveness-0800"),
   adminEffectivenessNuvidio: document.querySelector("#admin-effectiveness-nuvidio"),
+  admin0800Approved: document.querySelector("#admin-0800-approved"),
+  admin0800Cancelled: document.querySelector("#admin-0800-cancelled"),
+  admin0800Pending: document.querySelector("#admin-0800-pending"),
+  admin0800NoAction: document.querySelector("#admin-0800-no-action"),
+  adminNuvidioApproved: document.querySelector("#admin-nuvidio-approved"),
+  adminNuvidioReproved: document.querySelector("#admin-nuvidio-reproved"),
+  adminNuvidioNoAction: document.querySelector("#admin-nuvidio-no-action"),
   adminQuality: document.querySelector("#admin-quality"),
   adminUploadForm: document.querySelector("#admin-upload-form"),
   uploadModeOptions: document.querySelector("#upload-mode-options"),
@@ -165,6 +172,17 @@ function bindEvents() {
     button.addEventListener("click", () => setSection(button.dataset.section || "dashboard"));
   });
   elements.adminForm?.addEventListener("submit", handleAdminSave);
+  [
+    elements.admin0800Approved,
+    elements.admin0800Cancelled,
+    elements.admin0800Pending,
+    elements.admin0800NoAction,
+    elements.adminNuvidioApproved,
+    elements.adminNuvidioReproved,
+    elements.adminNuvidioNoAction
+  ].forEach((input) => {
+    input?.addEventListener("input", syncCalculatedAdminFields);
+  });
   elements.adminUser?.addEventListener("change", () => {
     state.adminSelectedUserId = String(elements.adminUser.value || "");
     if (state.overviewSelectedUserId !== "all") {
@@ -417,10 +435,35 @@ async function handleAdminSave(event) {
   const userId = String(elements.adminUser.value || "").trim();
   const selectedUser = state.operators.find((user) => user.id === userId);
   const date = normalizeDateKey(elements.adminDate.value);
-  const production0800 = parseMetricInput(elements.adminProduction0800.value);
-  const productionNuvidio = parseMetricInput(elements.adminProductionNuvidio.value);
-  const effectiveness0800 = parseMetricInput(elements.adminEffectiveness0800.value);
-  const effectivenessNuvidio = parseMetricInput(elements.adminEffectivenessNuvidio.value);
+  const funnel0800Approved = parseMetricInput(elements.admin0800Approved.value);
+  const funnel0800Cancelled = parseMetricInput(elements.admin0800Cancelled.value);
+  const funnel0800Pending = parseMetricInput(elements.admin0800Pending.value);
+  const funnel0800NoAction = parseMetricInput(elements.admin0800NoAction.value);
+  const funnelNuvidioApproved = parseMetricInput(elements.adminNuvidioApproved.value);
+  const funnelNuvidioReproved = parseMetricInput(elements.adminNuvidioReproved.value);
+  const funnelNuvidioNoAction = parseMetricInput(elements.adminNuvidioNoAction.value);
+  const production0800 = calculateProduction0800({
+    approved: funnel0800Approved,
+    cancelled: funnel0800Cancelled,
+    pending: funnel0800Pending,
+    noAction: funnel0800NoAction
+  });
+  const productionNuvidio = calculateProductionNuvidio({
+    approved: funnelNuvidioApproved,
+    reproved: funnelNuvidioReproved,
+    noAction: funnelNuvidioNoAction
+  });
+  const effectiveness0800 = calculateEffectiveness0800({
+    approved: funnel0800Approved,
+    cancelled: funnel0800Cancelled,
+    pending: funnel0800Pending,
+    noAction: funnel0800NoAction
+  });
+  const effectivenessNuvidio = calculateEffectivenessNuvidio({
+    approved: funnelNuvidioApproved,
+    reproved: funnelNuvidioReproved,
+    noAction: funnelNuvidioNoAction
+  });
   const qualityScore = parseMetricInput(elements.adminQuality.value);
   const productionTotal = sumPlatformProduction({ production0800, productionNuvidio });
   const effectiveness = averagePlatformEffectiveness({ effectiveness0800, effectivenessNuvidio });
@@ -428,15 +471,18 @@ async function handleAdminSave(event) {
   if (
     !selectedUser ||
     !date ||
-    !Number.isFinite(production0800) ||
-    !Number.isFinite(productionNuvidio) ||
-    !Number.isFinite(effectiveness0800) ||
-    !Number.isFinite(effectivenessNuvidio) ||
+    !Number.isFinite(funnel0800Approved) ||
+    !Number.isFinite(funnel0800Cancelled) ||
+    !Number.isFinite(funnel0800Pending) ||
+    !Number.isFinite(funnel0800NoAction) ||
+    !Number.isFinite(funnelNuvidioApproved) ||
+    !Number.isFinite(funnelNuvidioReproved) ||
+    !Number.isFinite(funnelNuvidioNoAction) ||
     !Number.isFinite(productionTotal) ||
     !Number.isFinite(effectiveness) ||
     !Number.isFinite(qualityScore)
   ) {
-    window.alert("Preencha operador, data, producao 0800, producao Nuvidio, efetividade 0800, efetividade Nuvidio e qualidade com valores validos.");
+    window.alert("Preencha operador, data, todos os status do 0800 e Nuvidio, e qualidade com valores validos.");
     return;
   }
 
@@ -452,6 +498,13 @@ async function handleAdminSave(event) {
         username0800: selectedUser.username0800 || "",
         usernameNuvidio: selectedUser.usernameNuvidio || "",
         date,
+        funnel0800Approved,
+        funnel0800Cancelled,
+        funnel0800Pending,
+        funnel0800NoAction,
+        funnelNuvidioApproved,
+        funnelNuvidioReproved,
+        funnelNuvidioNoAction,
         production0800,
         productionNuvidio,
         productionTotal,
@@ -666,11 +719,16 @@ async function parseSpreadsheetImportFile(file, options = {}) {
   const idxUsernameNuvidio = findColumnIndex(header, ["usuario nuvidio", "login nuvidio", "username nuvidio", "matricula nuvidio", "usuario nuvideo", "login nuvideo"]);
   const idxDate = findColumnIndex(header, ["data", "dia", "resultado", "data resultado", "dt"]);
   const idxEffectiveness = findColumnIndex(header, ["efetividade", "conversao", "tx efetividade"]);
-  const idxEffectiveness0800 = findColumnIndex(header, ["efetividade 0800", "conversao 0800", "tx efetividade 0800"]);
-  const idxEffectivenessNuvidio = findColumnIndex(header, ["efetividade nuvidio", "conversao nuvidio", "tx efetividade nuvidio", "efetividade nuvideo"]);
   const idxProduction = findColumnIndex(header, ["producao", "producao total", "volume", "qtde"]);
   const idxProduction0800 = findColumnIndex(header, ["producao 0800", "volume 0800", "qtde 0800"]);
   const idxProductionNuvidio = findColumnIndex(header, ["producao nuvidio", "volume nuvidio", "qtde nuvidio", "producao nuvideo"]);
+  const idx0800Approved = findColumnIndex(header, ["0800 aprovadas", "aprovadas 0800"]);
+  const idx0800Cancelled = findColumnIndex(header, ["0800 canceladas", "canceladas 0800"]);
+  const idx0800Pending = findColumnIndex(header, ["0800 pendenciadas", "pendenciadas 0800"]);
+  const idx0800NoAction = findColumnIndex(header, ["0800 sem acao", "sem acao 0800", "0800 sem ação", "sem ação 0800"]);
+  const idxNuvidioApproved = findColumnIndex(header, ["nuvidio aprovadas", "aprovadas nuvidio", "nuvideo aprovadas"]);
+  const idxNuvidioReproved = findColumnIndex(header, ["nuvidio reprovadas", "reprovadas nuvidio", "nuvideo reprovadas"]);
+  const idxNuvidioNoAction = findColumnIndex(header, ["nuvidio sem acao", "sem acao nuvidio", "nuvidio sem ação", "sem ação nuvidio", "nuvideo sem acao", "nuvideo sem ação"]);
   const idxQuality = findColumnIndex(header, ["qualidade", "nota de qualidade", "nota qualidade", "quality"]);
   const selectedMetrics = getSelectedImportMetrics(options.importMetrics);
 
@@ -688,17 +746,29 @@ async function parseSpreadsheetImportFile(file, options = {}) {
       selectedMetrics.has("production") &&
       idxProduction < 0 &&
       idxProduction0800 < 0 &&
-      idxProductionNuvidio < 0
+      idxProductionNuvidio < 0 &&
+      idx0800Approved < 0 &&
+      idx0800Cancelled < 0 &&
+      idx0800Pending < 0 &&
+      idx0800NoAction < 0 &&
+      idxNuvidioApproved < 0 &&
+      idxNuvidioReproved < 0 &&
+      idxNuvidioNoAction < 0
     ) {
-      throw new Error("Voce marcou Producao, entao a planilha precisa ter Producao ou as colunas Producao 0800/Producao Nuvidio.");
+      throw new Error("Voce marcou Producao, entao a planilha precisa ter Producao, Producao 0800/Producao Nuvidio ou os status das esteiras.");
     }
     if (
       selectedMetrics.has("effectiveness") &&
       idxEffectiveness < 0 &&
-      idxEffectiveness0800 < 0 &&
-      idxEffectivenessNuvidio < 0
+      idx0800Approved < 0 &&
+      idx0800Cancelled < 0 &&
+      idx0800Pending < 0 &&
+      idx0800NoAction < 0 &&
+      idxNuvidioApproved < 0 &&
+      idxNuvidioReproved < 0 &&
+      idxNuvidioNoAction < 0
     ) {
-      throw new Error("Voce marcou Efetividade, entao a planilha precisa ter Efetividade ou as colunas Efetividade 0800/Efetividade Nuvidio.");
+      throw new Error("Voce marcou Efetividade, entao a planilha precisa ter os status das esteiras ou uma coluna de efetividade pronta.");
     }
     if (selectedMetrics.has("quality") && idxQuality < 0) {
       throw new Error("Voce marcou Qualidade, entao a planilha precisa ter a coluna Qualidade.");
@@ -767,42 +837,73 @@ async function parseSpreadsheetImportFile(file, options = {}) {
     }
 
     const existing = existingEntries.get(uniqueKey) || null;
+    const funnel0800Approved = idx0800Approved >= 0 ? parseMetricInput(row[idx0800Approved]) : Number(existing?.funnel0800Approved);
+    const funnel0800Cancelled = idx0800Cancelled >= 0 ? parseMetricInput(row[idx0800Cancelled]) : Number(existing?.funnel0800Cancelled);
+    const funnel0800Pending = idx0800Pending >= 0 ? parseMetricInput(row[idx0800Pending]) : Number(existing?.funnel0800Pending);
+    const funnel0800NoAction = idx0800NoAction >= 0 ? parseMetricInput(row[idx0800NoAction]) : Number(existing?.funnel0800NoAction);
+    const funnelNuvidioApproved = idxNuvidioApproved >= 0 ? parseMetricInput(row[idxNuvidioApproved]) : Number(existing?.funnelNuvidioApproved);
+    const funnelNuvidioReproved = idxNuvidioReproved >= 0 ? parseMetricInput(row[idxNuvidioReproved]) : Number(existing?.funnelNuvidioReproved);
+    const funnelNuvidioNoAction = idxNuvidioNoAction >= 0 ? parseMetricInput(row[idxNuvidioNoAction]) : Number(existing?.funnelNuvidioNoAction);
     const production0800FromSheet = idxProduction0800 >= 0 ? parseMetricInput(row[idxProduction0800]) : NaN;
     const productionNuvidioFromSheet = idxProductionNuvidio >= 0 ? parseMetricInput(row[idxProductionNuvidio]) : NaN;
-    const effectiveness0800FromSheet = idxEffectiveness0800 >= 0 ? parseMetricInput(row[idxEffectiveness0800], { percent: true }) : NaN;
-    const effectivenessNuvidioFromSheet = idxEffectivenessNuvidio >= 0 ? parseMetricInput(row[idxEffectivenessNuvidio], { percent: true }) : NaN;
     const productionFromSheet = idxProduction >= 0 ? parseMetricInput(row[idxProduction]) : NaN;
     const effectivenessFromSheet = idxEffectiveness >= 0 ? parseMetricInput(row[idxEffectiveness], { percent: true }) : NaN;
     const qualityFromSheet = idxQuality >= 0 ? parseMetricInput(row[idxQuality], { percent: true }) : NaN;
 
-    const production0800 = resolvePlatformMetricBySelection({
-      selectedMetrics,
-      metric: "production",
-      parsedPlatformValue: production0800FromSheet,
-      parsedGenericValue: productionFromSheet,
-      existingValue: Number(existing?.production0800)
-    });
-    const productionNuvidio = resolvePlatformMetricBySelection({
-      selectedMetrics,
-      metric: "production",
-      parsedPlatformValue: productionNuvidioFromSheet,
-      parsedGenericValue: productionFromSheet,
-      existingValue: Number(existing?.productionNuvidio)
-    });
-    const effectiveness0800 = resolvePlatformMetricBySelection({
-      selectedMetrics,
-      metric: "effectiveness",
-      parsedPlatformValue: effectiveness0800FromSheet,
-      parsedGenericValue: effectivenessFromSheet,
-      existingValue: Number(existing?.effectiveness0800)
-    });
-    const effectivenessNuvidio = resolvePlatformMetricBySelection({
-      selectedMetrics,
-      metric: "effectiveness",
-      parsedPlatformValue: effectivenessNuvidioFromSheet,
-      parsedGenericValue: effectivenessFromSheet,
-      existingValue: Number(existing?.effectivenessNuvidio)
-    });
+    const has0800Funnel = [funnel0800Approved, funnel0800Cancelled, funnel0800Pending, funnel0800NoAction].every(Number.isFinite);
+    const hasNuvidioFunnel = [funnelNuvidioApproved, funnelNuvidioReproved, funnelNuvidioNoAction].every(Number.isFinite);
+    const production0800 = has0800Funnel
+      ? calculateProduction0800({
+        approved: funnel0800Approved,
+        cancelled: funnel0800Cancelled,
+        pending: funnel0800Pending,
+        noAction: funnel0800NoAction
+      })
+      : resolvePlatformMetricBySelection({
+        selectedMetrics,
+        metric: "production",
+        parsedPlatformValue: production0800FromSheet,
+        parsedGenericValue: productionFromSheet,
+        existingValue: Number(existing?.production0800)
+      });
+    const productionNuvidio = hasNuvidioFunnel
+      ? calculateProductionNuvidio({
+        approved: funnelNuvidioApproved,
+        reproved: funnelNuvidioReproved,
+        noAction: funnelNuvidioNoAction
+      })
+      : resolvePlatformMetricBySelection({
+        selectedMetrics,
+        metric: "production",
+        parsedPlatformValue: productionNuvidioFromSheet,
+        parsedGenericValue: productionFromSheet,
+        existingValue: Number(existing?.productionNuvidio)
+      });
+    const effectiveness0800 = has0800Funnel
+      ? calculateEffectiveness0800({
+        approved: funnel0800Approved,
+        cancelled: funnel0800Cancelled,
+        pending: funnel0800Pending,
+        noAction: funnel0800NoAction
+      })
+      : resolveMetricBySelection({
+        selectedMetrics,
+        metric: "effectiveness",
+        parsedValue: effectivenessFromSheet,
+        existingValue: Number(existing?.effectiveness0800)
+      });
+    const effectivenessNuvidio = hasNuvidioFunnel
+      ? calculateEffectivenessNuvidio({
+        approved: funnelNuvidioApproved,
+        reproved: funnelNuvidioReproved,
+        noAction: funnelNuvidioNoAction
+      })
+      : resolveMetricBySelection({
+        selectedMetrics,
+        metric: "effectiveness",
+        parsedValue: effectivenessFromSheet,
+        existingValue: Number(existing?.effectivenessNuvidio)
+      });
 
     const productionTotal = sumPlatformProduction({ production0800, productionNuvidio });
     const effectiveness = averagePlatformEffectiveness({ effectiveness0800, effectivenessNuvidio });
@@ -831,6 +932,13 @@ async function parseSpreadsheetImportFile(file, options = {}) {
 
     importItems.push({
       ...baseItem,
+      funnel0800Approved: Number.isFinite(funnel0800Approved) ? funnel0800Approved : 0,
+      funnel0800Cancelled: Number.isFinite(funnel0800Cancelled) ? funnel0800Cancelled : 0,
+      funnel0800Pending: Number.isFinite(funnel0800Pending) ? funnel0800Pending : 0,
+      funnel0800NoAction: Number.isFinite(funnel0800NoAction) ? funnel0800NoAction : 0,
+      funnelNuvidioApproved: Number.isFinite(funnelNuvidioApproved) ? funnelNuvidioApproved : 0,
+      funnelNuvidioReproved: Number.isFinite(funnelNuvidioReproved) ? funnelNuvidioReproved : 0,
+      funnelNuvidioNoAction: Number.isFinite(funnelNuvidioNoAction) ? funnelNuvidioNoAction : 0,
       production0800,
       productionNuvidio,
       productionTotal,
@@ -925,17 +1033,36 @@ function getSelectedImportMetrics(initialMetrics = null) {
 
 function getTemplateColumnsFromSelection(selectedMetrics) {
   const list = [];
+  const pushUnique = (value) => {
+    if (!list.includes(value)) list.push(value);
+  };
   IMPORT_METRIC_ORDER.forEach((metric) => {
     if (!selectedMetrics.has(metric)) return;
     if (metric === "production") {
-      list.push("Producao 0800", "Producao Nuvidio");
+      [
+        "0800 Aprovadas",
+        "0800 Canceladas",
+        "0800 Pendenciadas",
+        "0800 Sem Acao",
+        "Nuvidio Aprovadas",
+        "Nuvidio Reprovadas",
+        "Nuvidio Sem Acao"
+      ].forEach(pushUnique);
       return;
     }
     if (metric === "effectiveness") {
-      list.push("Efetividade 0800", "Efetividade Nuvidio");
+      [
+        "0800 Aprovadas",
+        "0800 Canceladas",
+        "0800 Pendenciadas",
+        "0800 Sem Acao",
+        "Nuvidio Aprovadas",
+        "Nuvidio Reprovadas",
+        "Nuvidio Sem Acao"
+      ].forEach(pushUnique);
       return;
     }
-    list.push(IMPORT_METRICS[metric].templateColumn);
+    pushUnique(IMPORT_METRICS[metric].templateColumn);
   });
   return list;
 }
@@ -959,11 +1086,11 @@ function updateUploadModeHelp() {
 
   const templateColumns = getTemplateColumnsFromSelection(selectedMetrics);
   if (selectedMetrics.size === IMPORT_METRIC_ORDER.length) {
-    elements.uploadHelpText.textContent = "Colunas aceitas: Nome do Operador, Usuario, Usuario 0800 ou Usuario Nuvidio, Data, Producao 0800, Producao Nuvidio, Efetividade 0800, Efetividade Nuvidio e Qualidade.";
+    elements.uploadHelpText.textContent = "Colunas aceitas: Nome do Operador, Usuario, Usuario 0800 ou Usuario Nuvidio, Data, status do 0800, status do Nuvidio e Qualidade. A efetividade e a producao sao calculadas automaticamente.";
     return;
   }
 
-  elements.uploadHelpText.textContent = `Colunas aceitas: Nome do Operador, Usuario, Usuario 0800 ou Usuario Nuvidio, Data e ${templateColumns.join(", ")}. As metricas nao marcadas sao mantidas do registro existente; se nao houver, iniciam em zero.`;
+  elements.uploadHelpText.textContent = `Colunas aceitas: Nome do Operador, Usuario, Usuario 0800 ou Usuario Nuvidio, Data e ${templateColumns.join(", ")}. Producao e efetividade serao calculadas automaticamente quando os status forem enviados.`;
 }
 
 function buildExistingEntriesLookup() {
@@ -979,6 +1106,13 @@ function buildExistingEntriesLookup() {
       const date = normalizeDateKey(entry?.date);
       if (!date) return;
       lookup.set(`${userId}__${date}`, {
+        funnel0800Approved: Number(entry?.funnel0800Approved),
+        funnel0800Cancelled: Number(entry?.funnel0800Cancelled),
+        funnel0800Pending: Number(entry?.funnel0800Pending),
+        funnel0800NoAction: Number(entry?.funnel0800NoAction),
+        funnelNuvidioApproved: Number(entry?.funnelNuvidioApproved),
+        funnelNuvidioReproved: Number(entry?.funnelNuvidioReproved),
+        funnelNuvidioNoAction: Number(entry?.funnelNuvidioNoAction),
         production0800: Number(entry?.production0800),
         productionNuvidio: Number(entry?.productionNuvidio),
         productionTotal: Number(entry?.productionTotal),
@@ -1966,6 +2100,13 @@ function getManagerHistoryEntries() {
         username0800: String(record?.username0800 || ""),
         usernameNuvidio: String(record?.usernameNuvidio || ""),
         date: String(entry?.date || ""),
+        funnel0800Approved: Number(entry?.funnel0800Approved || 0),
+        funnel0800Cancelled: Number(entry?.funnel0800Cancelled || 0),
+        funnel0800Pending: Number(entry?.funnel0800Pending || 0),
+        funnel0800NoAction: Number(entry?.funnel0800NoAction || 0),
+        funnelNuvidioApproved: Number(entry?.funnelNuvidioApproved || 0),
+        funnelNuvidioReproved: Number(entry?.funnelNuvidioReproved || 0),
+        funnelNuvidioNoAction: Number(entry?.funnelNuvidioNoAction || 0),
         production0800: Number(entry?.production0800 || 0),
         productionNuvidio: Number(entry?.productionNuvidio || 0),
         productionTotal: Number(entry?.productionTotal || 0),
@@ -2031,6 +2172,13 @@ function renderManagerHistoryTable(entries) {
                     data-production-nuvidio="${escapeHtml(String(entry.productionNuvidio))}"
                     data-effectiveness-0800="${escapeHtml(String(entry.effectiveness0800))}"
                     data-effectiveness-nuvidio="${escapeHtml(String(entry.effectivenessNuvidio))}"
+                    data-0800-approved="${escapeHtml(String(entry.funnel0800Approved))}"
+                    data-0800-cancelled="${escapeHtml(String(entry.funnel0800Cancelled))}"
+                    data-0800-pending="${escapeHtml(String(entry.funnel0800Pending))}"
+                    data-0800-no-action="${escapeHtml(String(entry.funnel0800NoAction))}"
+                    data-nuvidio-approved="${escapeHtml(String(entry.funnelNuvidioApproved))}"
+                    data-nuvidio-reproved="${escapeHtml(String(entry.funnelNuvidioReproved))}"
+                    data-nuvidio-no-action="${escapeHtml(String(entry.funnelNuvidioNoAction))}"
                     data-quality="${escapeHtml(String(entry.qualityScore))}"
                   >
                     Editar
@@ -2184,6 +2332,13 @@ function renderRecordTable(record, emptyMessage, options = {}) {
                         data-production-nuvidio="${escapeHtml(String(entry.productionNuvidio || 0))}"
                         data-effectiveness-0800="${escapeHtml(String(entry.effectiveness0800 || 0))}"
                         data-effectiveness-nuvidio="${escapeHtml(String(entry.effectivenessNuvidio || 0))}"
+                        data-0800-approved="${escapeHtml(String(entry.funnel0800Approved || 0))}"
+                        data-0800-cancelled="${escapeHtml(String(entry.funnel0800Cancelled || 0))}"
+                        data-0800-pending="${escapeHtml(String(entry.funnel0800Pending || 0))}"
+                        data-0800-no-action="${escapeHtml(String(entry.funnel0800NoAction || 0))}"
+                        data-nuvidio-approved="${escapeHtml(String(entry.funnelNuvidioApproved || 0))}"
+                        data-nuvidio-reproved="${escapeHtml(String(entry.funnelNuvidioReproved || 0))}"
+                        data-nuvidio-no-action="${escapeHtml(String(entry.funnelNuvidioNoAction || 0))}"
                         data-quality="${escapeHtml(String(entry.qualityScore || 0))}"
                       >
                         Editar
@@ -2230,18 +2385,24 @@ async function handleHistoryActionButton(button) {
   if (action === "edit-result") {
     const userId = String(button.getAttribute("data-user-id") || "").trim();
     const date = normalizeDateKey(button.getAttribute("data-date"));
-    const production0800 = parseMetricInput(button.getAttribute("data-production-0800"));
-    const productionNuvidio = parseMetricInput(button.getAttribute("data-production-nuvidio"));
-    const effectiveness0800 = parseMetricInput(button.getAttribute("data-effectiveness-0800"));
-    const effectivenessNuvidio = parseMetricInput(button.getAttribute("data-effectiveness-nuvidio"));
+    const funnel0800Approved = parseMetricInput(button.getAttribute("data-0800-approved"));
+    const funnel0800Cancelled = parseMetricInput(button.getAttribute("data-0800-cancelled"));
+    const funnel0800Pending = parseMetricInput(button.getAttribute("data-0800-pending"));
+    const funnel0800NoAction = parseMetricInput(button.getAttribute("data-0800-no-action"));
+    const funnelNuvidioApproved = parseMetricInput(button.getAttribute("data-nuvidio-approved"));
+    const funnelNuvidioReproved = parseMetricInput(button.getAttribute("data-nuvidio-reproved"));
+    const funnelNuvidioNoAction = parseMetricInput(button.getAttribute("data-nuvidio-no-action"));
     const qualityScore = parseMetricInput(button.getAttribute("data-quality"));
     if (
       !userId ||
       !date ||
-      !Number.isFinite(production0800) ||
-      !Number.isFinite(productionNuvidio) ||
-      !Number.isFinite(effectiveness0800) ||
-      !Number.isFinite(effectivenessNuvidio) ||
+      !Number.isFinite(funnel0800Approved) ||
+      !Number.isFinite(funnel0800Cancelled) ||
+      !Number.isFinite(funnel0800Pending) ||
+      !Number.isFinite(funnel0800NoAction) ||
+      !Number.isFinite(funnelNuvidioApproved) ||
+      !Number.isFinite(funnelNuvidioReproved) ||
+      !Number.isFinite(funnelNuvidioNoAction) ||
       !Number.isFinite(qualityScore)
     ) {
       window.alert("Nao foi possivel carregar os dados do registro para edicao.");
@@ -2253,10 +2414,14 @@ async function handleHistoryActionButton(button) {
     syncGlobalOperatorSelect();
     hydrateAdminFormFromRecord();
     if (elements.adminDate) elements.adminDate.value = date;
-    if (elements.adminProduction0800) elements.adminProduction0800.value = String(production0800);
-    if (elements.adminProductionNuvidio) elements.adminProductionNuvidio.value = String(productionNuvidio);
-    if (elements.adminEffectiveness0800) elements.adminEffectiveness0800.value = String(effectiveness0800);
-    if (elements.adminEffectivenessNuvidio) elements.adminEffectivenessNuvidio.value = String(effectivenessNuvidio);
+    if (elements.admin0800Approved) elements.admin0800Approved.value = String(funnel0800Approved);
+    if (elements.admin0800Cancelled) elements.admin0800Cancelled.value = String(funnel0800Cancelled);
+    if (elements.admin0800Pending) elements.admin0800Pending.value = String(funnel0800Pending);
+    if (elements.admin0800NoAction) elements.admin0800NoAction.value = String(funnel0800NoAction);
+    if (elements.adminNuvidioApproved) elements.adminNuvidioApproved.value = String(funnelNuvidioApproved);
+    if (elements.adminNuvidioReproved) elements.adminNuvidioReproved.value = String(funnelNuvidioReproved);
+    if (elements.adminNuvidioNoAction) elements.adminNuvidioNoAction.value = String(funnelNuvidioNoAction);
+    syncCalculatedAdminFields();
     if (elements.adminQuality) elements.adminQuality.value = String(qualityScore);
     setSection("admin");
     window.alert("Registro carregado no formulario de Gestao. Ajuste os campos e clique em Salvar resultado.");
@@ -2334,10 +2499,14 @@ function hydrateAdminFormFromRecord() {
   const latest = getLatestEntry(state.adminSelectedRecord);
   const fallbackDate = getDefaultResultDate();
   elements.adminDate.value = latest?.date || fallbackDate;
-  elements.adminProduction0800.value = Number.isFinite(latest?.production0800) ? String(latest.production0800) : "";
-  elements.adminProductionNuvidio.value = Number.isFinite(latest?.productionNuvidio) ? String(latest.productionNuvidio) : "";
-  elements.adminEffectiveness0800.value = Number.isFinite(latest?.effectiveness0800) ? String(latest.effectiveness0800) : "";
-  elements.adminEffectivenessNuvidio.value = Number.isFinite(latest?.effectivenessNuvidio) ? String(latest.effectivenessNuvidio) : "";
+  elements.admin0800Approved.value = Number.isFinite(latest?.funnel0800Approved) ? String(latest.funnel0800Approved) : "";
+  elements.admin0800Cancelled.value = Number.isFinite(latest?.funnel0800Cancelled) ? String(latest.funnel0800Cancelled) : "";
+  elements.admin0800Pending.value = Number.isFinite(latest?.funnel0800Pending) ? String(latest.funnel0800Pending) : "";
+  elements.admin0800NoAction.value = Number.isFinite(latest?.funnel0800NoAction) ? String(latest.funnel0800NoAction) : "";
+  elements.adminNuvidioApproved.value = Number.isFinite(latest?.funnelNuvidioApproved) ? String(latest.funnelNuvidioApproved) : "";
+  elements.adminNuvidioReproved.value = Number.isFinite(latest?.funnelNuvidioReproved) ? String(latest.funnelNuvidioReproved) : "";
+  elements.adminNuvidioNoAction.value = Number.isFinite(latest?.funnelNuvidioNoAction) ? String(latest.funnelNuvidioNoAction) : "";
+  syncCalculatedAdminFields();
   elements.adminQuality.value = Number.isFinite(latest?.qualityScore) ? String(latest.qualityScore) : "";
 }
 
@@ -2472,6 +2641,13 @@ function normalizeRecord(record) {
     }
     return {
       date,
+      funnel0800Approved: Number(entry?.funnel0800Approved || 0),
+      funnel0800Cancelled: Number(entry?.funnel0800Cancelled || 0),
+      funnel0800Pending: Number(entry?.funnel0800Pending || 0),
+      funnel0800NoAction: Number(entry?.funnel0800NoAction || 0),
+      funnelNuvidioApproved: Number(entry?.funnelNuvidioApproved || 0),
+      funnelNuvidioReproved: Number(entry?.funnelNuvidioReproved || 0),
+      funnelNuvidioNoAction: Number(entry?.funnelNuvidioNoAction || 0),
       production0800: Number(entry?.production0800 || 0),
       productionNuvidio: Number(entry?.productionNuvidio || 0),
       productionTotal,
@@ -2552,6 +2728,85 @@ function averagePlatformEffectiveness(values = {}) {
   const items = [Number(values.effectiveness0800), Number(values.effectivenessNuvidio)].filter(Number.isFinite);
   if (!items.length) return NaN;
   return items.reduce((sum, value) => sum + value, 0) / items.length;
+}
+
+function calculateEffectiveness0800(values = {}) {
+  const approved = Number(values.approved || 0);
+  const cancelled = Number(values.cancelled || 0);
+  const pending = Number(values.pending || 0);
+  const noAction = Number(values.noAction || 0);
+  const total = approved + cancelled + pending + noAction;
+  if (!Number.isFinite(total) || total <= 0) return 0;
+  return ((approved + cancelled + pending) / total) * 100;
+}
+
+function calculateEffectivenessNuvidio(values = {}) {
+  const approved = Number(values.approved || 0);
+  const reproved = Number(values.reproved || 0);
+  const noAction = Number(values.noAction || 0);
+  const total = approved + reproved + noAction;
+  if (!Number.isFinite(total) || total <= 0) return 0;
+  return ((approved + reproved) / total) * 100;
+}
+
+function calculateProduction0800(values = {}) {
+  const approved = Number(values.approved || 0);
+  const cancelled = Number(values.cancelled || 0);
+  const pending = Number(values.pending || 0);
+  const noAction = Number(values.noAction || 0);
+  const total = approved + cancelled + pending + noAction;
+  return Number.isFinite(total) ? total : 0;
+}
+
+function calculateProductionNuvidio(values = {}) {
+  const approved = Number(values.approved || 0);
+  const reproved = Number(values.reproved || 0);
+  const noAction = Number(values.noAction || 0);
+  const total = approved + reproved + noAction;
+  return Number.isFinite(total) ? total : 0;
+}
+
+function syncCalculatedAdminFields() {
+  const funnel0800Approved = parseMetricInput(elements.admin0800Approved?.value);
+  const funnel0800Cancelled = parseMetricInput(elements.admin0800Cancelled?.value);
+  const funnel0800Pending = parseMetricInput(elements.admin0800Pending?.value);
+  const funnel0800NoAction = parseMetricInput(elements.admin0800NoAction?.value);
+  const funnelNuvidioApproved = parseMetricInput(elements.adminNuvidioApproved?.value);
+  const funnelNuvidioReproved = parseMetricInput(elements.adminNuvidioReproved?.value);
+  const funnelNuvidioNoAction = parseMetricInput(elements.adminNuvidioNoAction?.value);
+
+  const production0800 = calculateProduction0800({
+    approved: funnel0800Approved,
+    cancelled: funnel0800Cancelled,
+    pending: funnel0800Pending,
+    noAction: funnel0800NoAction
+  });
+  const productionNuvidio = calculateProductionNuvidio({
+    approved: funnelNuvidioApproved,
+    reproved: funnelNuvidioReproved,
+    noAction: funnelNuvidioNoAction
+  });
+  const effectiveness0800 = calculateEffectiveness0800({
+    approved: funnel0800Approved,
+    cancelled: funnel0800Cancelled,
+    pending: funnel0800Pending,
+    noAction: funnel0800NoAction
+  });
+  const effectivenessNuvidio = calculateEffectivenessNuvidio({
+    approved: funnelNuvidioApproved,
+    reproved: funnelNuvidioReproved,
+    noAction: funnelNuvidioNoAction
+  });
+
+  if (elements.adminProduction0800) elements.adminProduction0800.value = formatFormNumber(production0800);
+  if (elements.adminProductionNuvidio) elements.adminProductionNuvidio.value = formatFormNumber(productionNuvidio);
+  if (elements.adminEffectiveness0800) elements.adminEffectiveness0800.value = formatFormNumber(effectiveness0800);
+  if (elements.adminEffectivenessNuvidio) elements.adminEffectivenessNuvidio.value = formatFormNumber(effectivenessNuvidio);
+}
+
+function formatFormNumber(value) {
+  if (!Number.isFinite(value)) return "";
+  return String(Math.round(value * 100) / 100);
 }
 
 function formatOperatorOptionLabel(operator) {
